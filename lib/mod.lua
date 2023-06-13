@@ -17,7 +17,9 @@ local state = {
   x = 0,
   y = 0,
   -- sustain = params.add_number("sustain_pedal", "sustain pedal", 0, 127. 4),
-  ons = {}, -- Map from MIDI note number to true if note is on.
+  offs = {}, -- Map from MIDI channel to notes-off table, which is a table
+      -- from a MIDI note number to the data for the note off.
+      -- We are in a sustain for a channel if its notes-off table is non-nil.
   original_norns_midi_event = nil,
 }
 
@@ -60,8 +62,32 @@ end)
 -- We are wrapping
 -- https://github.com/monome/norns/blob/main/lua/core/midi.lua#L426
 --
+-- TODO: Don't mix up sustains from different devices!
+--
 function wrapped_norns_midi_event(id, data)
-  print("sustain_mod: Enter mod_midi_event")
+  local msg = midi.to_msg(data)
+  local notes_off = state.offs[msg.ch]
+  if msg.type == 'cc' and msg.val == 0 and notes_off ~= nil then
+    -- Release sustained notes on this channel
+    print("sustain_mod: Releasing notes")
+    for note, dta in pairs(notes_off) do
+      print("sustain_mod: Releasing note " .. note)
+      state.original_norns_midi_event(id, dta)
+    end
+    state.offs[msg.ch] = nil
+  elseif msg.type == 'cc' and msg.val == 127 and notes_off == nil then
+    -- Start capturing notes on this channel
+    state.offs[msg.ch] = {}
+    print("sustain_mod: Capturing on channel " .. msg.ch)
+  elseif msg.type == 'note_off' and notes_off ~= nil then
+    -- Hold the note off
+    state.offs[msg.ch][msg.note] = data
+    print("sustain_mod: Held note " .. msg.note)
+    return
+  end
+
+  -- Continue to the original event handler
+
   state.original_norns_midi_event(id, data)
 end
 
