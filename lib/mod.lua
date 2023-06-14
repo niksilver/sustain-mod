@@ -17,10 +17,11 @@ local state = {
   x = 0,
   y = 0,
   -- sustain = params.add_number("sustain_pedal", "sustain pedal", 0, 127. 4),
-  offs = {}, -- Map from MIDI channel to notes-off table, which is a table
-      -- from a MIDI note number to the data for the note off.
+  offs = {}, -- Map from MIDI device id to  MIDI channel to notes-off table,
+      -- which is a table from a MIDI note number to the data for the note off.
       -- We are in a sustain for a channel if its notes-off table is non-nil.
   original_norns_midi_event = nil,
+  original_norns_midi_remove = nil,
 }
 
 
@@ -49,6 +50,11 @@ mod.hook.register("system_post_startup", "sustain mod post startup", function()
     state.original_norns_midi_event = _norns.midi.event
     _norns.midi.event = wrapped_norns_midi_event
   end
+
+  if state.original_norns_midi_remove == nil then
+    state.original_norns_midi_remove = _norns.midi.remove
+    _norns.midi.remove = wrapped_norns_midi_remove
+  end
 end)
 
 mod.hook.register("script_pre_init", "sustain mod pre-init", function()
@@ -65,8 +71,14 @@ end)
 -- TODO: Don't mix up sustains from different devices!
 --
 function wrapped_norns_midi_event(id, data)
+  if state.offs[id] == nil then
+    state.offs[id] = {}
+  end
+  local offs = state.offs[id]
+
   local msg = midi.to_msg(data)
-  local notes_off = state.offs[msg.ch]
+  local notes_off = offs[msg.ch]
+
   if msg.type == 'cc' and msg.val == 0 and notes_off ~= nil then
     -- Release sustained notes on this channel
     print("sustain_mod: Releasing notes")
@@ -74,14 +86,14 @@ function wrapped_norns_midi_event(id, data)
       print("sustain_mod: Releasing note " .. note)
       state.original_norns_midi_event(id, dta)
     end
-    state.offs[msg.ch] = nil
+    offs[msg.ch] = nil
   elseif msg.type == 'cc' and msg.val == 127 and notes_off == nil then
     -- Start capturing notes on this channel
-    state.offs[msg.ch] = {}
+    offs[msg.ch] = {}
     print("sustain_mod: Capturing on channel " .. msg.ch)
   elseif msg.type == 'note_off' and notes_off ~= nil then
     -- Hold the note off
-    state.offs[msg.ch][msg.note] = data
+    offs[msg.ch][msg.note] = data
     print("sustain_mod: Held note " .. msg.note)
     return
   end
@@ -91,6 +103,12 @@ function wrapped_norns_midi_event(id, data)
   state.original_norns_midi_event(id, data)
 end
 
+-- Our wrapper around a MIDI device removal. We just tidy up our offs table.
+--
+function wrapped_norns_midi_remove(id)
+    state.offs[id] = nil
+    state.original_norns_midi_remove(id)
+end
 
 --
 -- [optional] menu: extending the menu system is done by creating a table with
