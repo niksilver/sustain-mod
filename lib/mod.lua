@@ -5,6 +5,10 @@
 
 local mod = require 'core/mods'
 
+-- This is the usual MIDI CC value for sustain, but you can change it if you wish.
+--
+local SUSTAIN_CC = 64
+
 --
 -- [optional] a mod is like any normal lua module. local variables can be used
 -- to hold any state which needs to be accessible across hooks, the menu, and
@@ -16,7 +20,6 @@ local mod = require 'core/mods'
 local state = {
   x = 0,
   y = 0,
-  -- sustain = params.add_number("sustain_pedal", "sustain pedal", 0, 127. 4),
   offs = {}, -- Map from MIDI device id to  MIDI channel to notes-off table,
       -- which is a table from a MIDI note number to the data for the note off.
       -- We are in a sustain for a channel if its notes-off table is non-nil.
@@ -25,31 +28,21 @@ local state = {
 }
 
 
---
--- [optional] hooks are essentially callbacks which can be used by multiple mods
--- at the same time. each function registered with a hook must also include a
--- name. registering a new function with the name of an existing function will
--- replace the existing function. using descriptive names (which include the
--- name of the mod itself) can help debugging because the name of a callback
--- function will be printed out by matron (making it visible in maiden) before
--- the callback function is called.
---
--- here we have dummy functionality to help confirm things are getting called
--- and test out access to mod level state via mod supplied fuctions.
---
-
-
--- Initialise the sustain mod by (i) assuming all notes are off, and
--- (ii) wrapping the core MIDI event function.
+-- Initialise the sustain mod.
 --
 mod.hook.register("system_post_startup", "sustain mod post startup", function()
-  print("sustain_mod: Enter init")
-  state.ons = {}
+  -- Assume no note-off data
+
+  state.offs = {}
+
+  -- Wrap MIDI event capture
 
   if state.original_norns_midi_event == nil then
     state.original_norns_midi_event = _norns.midi.event
     _norns.midi.event = wrapped_norns_midi_event
   end
+
+  -- Wrap MIDI device removal
 
   if state.original_norns_midi_remove == nil then
     state.original_norns_midi_remove = _norns.midi.remove
@@ -68,8 +61,6 @@ end)
 -- We are wrapping
 -- https://github.com/monome/norns/blob/main/lua/core/midi.lua#L426
 --
--- TODO: Don't mix up sustains from different devices!
---
 function wrapped_norns_midi_event(id, data)
   if state.offs[id] == nil then
     state.offs[id] = {}
@@ -78,23 +69,20 @@ function wrapped_norns_midi_event(id, data)
 
   local msg = midi.to_msg(data)
   local notes_off = offs[msg.ch]
+  local sustain_cc = msg.type == 'cc' and msg.cc == SUSTAIN_CC
 
-  if msg.type == 'cc' and msg.val == 0 and notes_off ~= nil then
+  if sustain_cc and msg.val == 0 and notes_off ~= nil then
     -- Release sustained notes on this channel
-    print("sustain_mod: Releasing notes")
     for note, dta in pairs(notes_off) do
-      print("sustain_mod: Releasing note " .. note)
       state.original_norns_midi_event(id, dta)
     end
     offs[msg.ch] = nil
-  elseif msg.type == 'cc' and msg.val == 127 and notes_off == nil then
+  elseif sustain_cc and msg.val == 127 and notes_off == nil then
     -- Start capturing notes on this channel
     offs[msg.ch] = {}
-    print("sustain_mod: Capturing on channel " .. msg.ch)
   elseif msg.type == 'note_off' and notes_off ~= nil then
     -- Hold the note off
     offs[msg.ch][msg.note] = data
-    print("sustain_mod: Held note " .. msg.note)
     return
   end
 
