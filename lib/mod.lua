@@ -18,8 +18,6 @@ local SUSTAIN_CC = 64
 --
 
 local state = {
-  x = 0,
-  y = 0,
   offs = {}, -- Map from MIDI device id to  MIDI channel to notes-off table,
       -- which is a table from a MIDI note number to the data for the note off.
       -- We are in a sustain for a channel if its notes-off table is non-nil.
@@ -113,17 +111,17 @@ m.key = function(n, z)
 end
 
 m.enc = function(n, d)
-  if n == 2 then state.x = state.x + d
-  elseif n == 3 then state.y = state.y + d end
-  -- tell the menu system to redraw, which in turn calls the mod's menu redraw
-  -- function
-  mod.menu.redraw()
+  -- Nothing to do for encoders
 end
 
 m.redraw = function()
   screen.clear()
-  screen.move(64,40)
-  screen.text_center(state.x .. "/" .. state.y)
+  screen.move(64, 32)
+  screen.text_center('Value of sustain CC is ' .. SUSTAIN_CC .. '.')
+  screen.move(64, 48)
+  screen.text_center('To change this, please')
+  screen.move(64, 56)
+  screen.text_center('edit the mod directly.')
   screen.update()
 end
 
